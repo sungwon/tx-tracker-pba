@@ -39,14 +39,23 @@ export default function sungwon(api: API, outputApi: OutputAPI) {
     //     b) older than the currently finalized block.
 
 
+    // keep track of transactions
+    // key = tx hash, value = array of block hashes where it was settled, but only if they are on different paths/forks
     const txMap = new Map<string, string[]>();
+
+    // map blocks to their parents so we can trace descendant paths
     const parentMap = new Map<string, string>()
+
+    // keep track of last known finalized block
     let lastFinalized = "";
 
+    // check if curBlock is a descendant of oldBlock 
     const isDescendant = (curBlock: string, oldBlock: string): boolean => {
       while(parentMap.has(curBlock) && parentMap.get(curBlock) != lastFinalized) {
-        curBlock = parentMap.get(curBlock);
-        if (curBlock == oldBlock) {
+        const parent = parentMap.get(curBlock);
+        if (!parent) throw new Error("Invalid parent");
+        curBlock = parent;
+        if (curBlock === oldBlock) {
           return true;
         }
       }
@@ -58,22 +67,21 @@ export default function sungwon(api: API, outputApi: OutputAPI) {
 
       const blockTxs = api.getBody(blockHash);
 
-
       // iterate through tx map to maintain order
-      txMap.forEach( (status, curTx) => {
+      txMap.forEach( (settledHashes, curTx) => {
         if (blockTxs.includes(curTx)) {
           
-            // add hash if it's in a fork who's ascendant's don't have it
-            // a hash means that it is settled and the hash is the block on which it was settled
-            if (status.length != 0) {
-              status.forEach((settledHash) => {
+            // add hash if it's in a fork who's ascendants don't have it
+            // the hash is the block on which it was settled
+            if (settledHashes.length != 0) {
+              settledHashes.forEach((settledHash) => {
                 if(!isDescendant(blockHash, settledHash)) {
-                  status.push(blockHash);
+                  settledHashes.push(blockHash);
                 }
               });
               
             } 
-            txMap.set(curTx, status); // save blockHash of what block it was settled at 
+            txMap.set(curTx, settledHashes); // save blockHash of what block it was settled at 
 
             if (api.isTxValid(blockHash, curTx)) {
               if (api.isTxSuccessful(blockHash, curTx)) {
@@ -100,18 +108,18 @@ export default function sungwon(api: API, outputApi: OutputAPI) {
       const blockTxs = api.getBody(blockHash);
       
       const parentHash = parentMap.get(blockHash);
-      if (parentHash && parentHash != lastFinalized) {
+      if (parentHash && parentHash !== lastFinalized) {
         // check parent
         onFinalized({ type: "finalized", blockHash: parentHash });
       }
       
 
       // iterate through tx map to maintain order
-      txMap.forEach((status, curTx) => {
+      txMap.forEach((settledHashes, curTx) => {
 
         if (blockTxs.includes(curTx)) {
             // naive approach, not checking forks
-            if (status.length != 0) {
+            if (settledHashes.length != 0) {
 
                   if (api.isTxSuccessful(blockHash, curTx)) {
                     outputApi.onTxDone(curTx, {blockHash: blockHash, type: "valid", successful: true} )
@@ -122,6 +130,7 @@ export default function sungwon(api: API, outputApi: OutputAPI) {
         }
       });
 
+      // update last know finalized block
       lastFinalized = blockHash;
 
     }
