@@ -10,10 +10,6 @@ import type {
 
 export default function sungwon(api: API, outputApi: OutputAPI) {
 
-  const txMap = new Map<string, string>();
-  const parentMap = new Map<string, string>()
-  let lastFinalized = "";
-
     // Requirements:
     //
     // 1) When a transaction becomes "settled"-which always occurs upon receiving a "newBlock" event-
@@ -43,6 +39,19 @@ export default function sungwon(api: API, outputApi: OutputAPI) {
     //     b) older than the currently finalized block.
 
 
+    const txMap = new Map<string, string[]>();
+    const parentMap = new Map<string, string>()
+    let lastFinalized = "";
+
+    const isDescendant = (curBlock: string, oldBlock: string): boolean => {
+      while(parentMap.has(curBlock) && parentMap.get(curBlock) != lastFinalized) {
+        curBlock = parentMap.get(curBlock);
+        if (curBlock == oldBlock) {
+          return true;
+        }
+      }
+      return false
+    }
 
     const onNewBlock = ({ blockHash, parent }: NewBlockEvent) => {
       parentMap.set(blockHash, parent);
@@ -54,10 +63,17 @@ export default function sungwon(api: API, outputApi: OutputAPI) {
       txMap.forEach( (status, curTx) => {
         if (blockTxs.includes(curTx)) {
           
-            // todo: check forks
-
-
-            txMap.set(curTx, blockHash); // save blockHash of what block it was settled at 
+            // add hash if it's in a fork who's ascendant's don't have it
+            // a hash means that it is settled and the hash is the block on which it was settled
+            if (status.length != 0) {
+              status.forEach((settledHash) => {
+                if(!isDescendant(blockHash, settledHash)) {
+                  status.push(blockHash);
+                }
+              });
+              
+            } 
+            txMap.set(curTx, status); // save blockHash of what block it was settled at 
 
             if (api.isTxValid(blockHash, curTx)) {
               if (api.isTxSuccessful(blockHash, curTx)) {
@@ -76,7 +92,7 @@ export default function sungwon(api: API, outputApi: OutputAPI) {
     const onNewTx = ({ value: transaction }: NewTransactionEvent) => {
       // add to tx tracking data structure
       if (!txMap.has(transaction)) {
-        txMap.set(transaction, "unsettled");
+        txMap.set(transaction, []);
       }
     }
 
@@ -95,8 +111,8 @@ export default function sungwon(api: API, outputApi: OutputAPI) {
 
         if (blockTxs.includes(curTx)) {
             // naive approach, not checking forks
-            if (status != "unsettled") {
-                  
+            if (status.length != 0) {
+
                   if (api.isTxSuccessful(blockHash, curTx)) {
                     outputApi.onTxDone(curTx, {blockHash: blockHash, type: "valid", successful: true} )
                   } else {
