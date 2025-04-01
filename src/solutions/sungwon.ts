@@ -11,6 +11,7 @@ import type {
 export default function sungwon(api: API, outputApi: OutputAPI) {
 
   const txMap = new Map<string, string>();
+  const lastFinalized = "";
 
     // Requirements:
     //
@@ -43,13 +44,13 @@ export default function sungwon(api: API, outputApi: OutputAPI) {
 
 
     const onNewBlock = ({ blockHash, parent }: NewBlockEvent) => {
-      // TODO:: implement it
-      const blockTxs = api.getBody(blockHash)
+      // TODO: check ascendant block if already settled
+      const blockTxs = api.getBody(blockHash);
 
       // iterate through tx map to maintain order
       txMap.forEach( (curTx, status) => {
-        if (blockTxs.includes(curTx) && status != "settled") {
-            txMap.set(curTx, "settled");
+        if (blockTxs.includes(curTx)) {
+            txMap.set(curTx, blockHash); // save blockHash of what block it was settled at
 
             if (api.isTxValid(blockHash, curTx)) {
               if (api.isTxSuccessful(blockHash, curTx)) {
@@ -69,12 +70,26 @@ export default function sungwon(api: API, outputApi: OutputAPI) {
       // TODO:: implement it
       // add to tx tracking data structure
       if (!txMap.has(transaction)) {
-        txMap.set(transaction, "new");
+        txMap.set(transaction, "unsettled");
       }
     }
 
     const onFinalized = ({ blockHash }: FinalizedEvent) => {
-      // TODO:: implement it
+      // TODO:: check from previously settled block up to this one
+      const blockTxs = api.getBody(blockHash);
+
+      // iterate through tx map to maintain order
+      txMap.forEach((status, curTx) => {
+        if (blockTxs.includes(curTx)) {
+            // naive approach, not checking forks
+            console.log(curTx, status)
+            if (status != "unsettled") {
+              console.log(api.getBody(status))
+              //outputApi.onTxDone(curTx, );
+            } 
+        }
+      });
+
 
     }
 
